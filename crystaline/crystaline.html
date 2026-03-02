@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Crystalline Ribbon Physics</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            background: #1a0a2e;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        canvas {
+            display: block;
+            cursor: crosshair;
+        }
+        
+        #ui {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: rgba(255, 255, 255, 0.8);
+            pointer-events: none;
+            z-index: 10;
+        }
+        
+        #ui h1 {
+            font-size: 18px;
+            font-weight: 300;
+            letter-spacing: 2px;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+        }
+        
+        #ui p {
+            font-size: 14px;
+            opacity: 0.7;
+            margin: 5px 0;
+        }
+        
+        #controls {
+            position: absolute;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 15px;
+            z-index: 10;
+        }
+        
+        button {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 200, 100, 0.3);
+            color: #ffc864;
+            padding: 12px 24px;
+            border-radius: 30px;
+            cursor: pointer;
+            font-size: 12px;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            transition: all 0.3s ease;
+            backdrop-filter: blur(10px);
+        }
+        
+        button:hover {
+            background: rgba(255, 200, 100, 0.2);
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(255, 200, 100, 0.3);
+        }
+        
+        #glow {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            background: radial-gradient(circle at 50% 50%, transparent 0%, rgba(26, 10, 46, 0.8) 100%);
+        }
+    </style>
+</head>
+<body>
+    <div id="glow"></div>
+    <div id="ui">
+        <h1>Crystalline Physics</h1>
+        <p>Click and drag to disturb the ribbons</p>
+        <p>Crystals follow your cursor</p>
+    </div>
+    <div id="controls">
+        <button onclick="resetSimulation()">Reset</button>
+        <button onclick="toggleAutoRotate()">Auto Rotate</button>
+        <button onclick="addCrystal()">Add Crystal</button>
+    </div>
+    <canvas id="canvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        let width, height;
+        let mouse = { x: 0, y: 0, prevX: 0, prevY: 0, vx: 0, vy: 0, pressed: false };
+        let time = 0;
+        let autoRotate = false;
+        
+        // Color palette
+        const colors = {
+            deepPurple: [45, 20, 60],
+            purple: [120, 50, 150],
+            lightPurple: [180, 120, 200],
+            gold: [255, 200, 100],
+            roseGold: [220, 150, 130],
+            crystalBlue: [150, 200, 255],
+            white: [255, 255, 255]
+        };
+        
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+        
+        // Utility functions
+        function lerp(a, b, t) { return a + (b - a) * t; }
+        function lerpColor(c1, c2, t) {
+            return [
+                Math.floor(lerp(c1[0], c2[0], t)),
+                Math.floor(lerp(c1[1], c2[1], t)),
+                Math.floor(lerp(c1[2], c2[2], t))
+            ];
+        }
+        
+        class Crystal {
+            constructor(x, y, size, angle) {
+                this.x = x || Math.random() * width;
+                this.y = y || Math.random() * height;
+                this.size = size || Math.random() * 20 + 15;
+                this.angle = angle || Math.random() * Math.PI * 2;
+                this.baseAngle = this.angle;
+                this.spinSpeed = (Math.random() - 0.5) * 0.04;
+                this.pulse = Math.random() * Math.PI * 2;
+                this.vx = 0;
+                this.vy = 0;
+                this.targetX = this.x;
+                this.targetY = this.y;
+            }
+            
+            update() {
+                // Pulse animation
+                this.pulse += 0.03;
+                this.angle += this.spinSpeed;
+                
+                // Mouse attraction
+                const dx = mouse.x - this.x;
+                const dy = mouse.y - this.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                
+                if (mouse.pressed && dist < 300) {
+                    // Strong attraction when mouse pressed
+                    this.vx += dx * 0.02;
+                    this.vy += dy * 0.02;
+                    this.angle += 0.05;
+                } else {
+                    // Gentle floating
+                    this.targetX = width/2 + Math.cos(this.pulse * 0.5 + this.baseAngle) * 250;
+                    this.targetY = height/2 + Math.sin(this.pulse * 0.3 + this.baseAngle) * 200;
+                    this.vx += (this.targetX - this.x) * 0.01;
+                    this.vy += (this.targetY - this.y) * 0.01;
+                }
+                
+                // Apply velocity with damping
+                this.vx *= 0.95;
+                this.vy *= 0.95;
+                this.x += this.vx;
+                this.y += this.vy;
+            }
+            
+            draw() {
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                ctx.rotate(this.angle);
+                
+                // Glow effect
+                const glowSize = this.size * (1 + Math.sin(this.pulse) * 0.2);
+                const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, glowSize * 2);
+                gradient.addColorStop(0, 'rgba(150, 200, 255, 0.4)');
+                gradient.addColorStop(0.5, 'rgba(255, 200, 100, 0.2)');
+                gradient.addColorStop(1, 'transparent');
+                
+                ctx.fillStyle = gradient;
+                ctx.beginPath();
+                ctx.arc(0, 0, glowSize * 2, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Crystal shape (hexagon with inner facets)
+                const points = [];
+                for (let i = 0; i < 6; i++) {
+                    const a = (i * Math.PI) / 3;
+                    const r = i % 2 === 0 ? this.size : this.size * 0.5;
+                    points.push([Math.cos(a) * r, Math.sin(a) * r]);
+                }
+                
+                // Main crystal body
+                const intensity = (Math.sin(this.pulse) + 1) / 2;
+                const r = Math.floor(lerp(colors.crystalBlue[0], colors.white[0], intensity));
+                const g = Math.floor(lerp(colors.crystalBlue[1], colors.gold[1], intensity));
+                const b = Math.floor(lerp(colors.crystalBlue[2], colors.purple[2], intensity));
+                
+                ctx.fillStyle = `rgba(${r}, ${g}, ${b}, 0.8)`;
+                ctx.strokeStyle = `rgba(255, 255, 255, ${0.6 + intensity * 0.4})`;
+                ctx.lineWidth = 2;
+                
+                ctx.beginPath();
+                ctx.moveTo(points[0][0], points[0][1]);
+                for (let i = 1; i < points.length; i++) {
+                    ctx.lineTo(points[i][0], points[i][1]);
+                }
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+                
+                // Inner facet
+                ctx.fillStyle = `rgba(255, 255, 255, ${0.3 + intensity * 0.3})`;
+                ctx.beginPath();
+                ctx.moveTo(points[0][0] * 0.4, points[0][1] * 0.4);
+                for (let i = 1; i < points.length; i++) {
+                    ctx.lineTo(points[i][0] * 0.4, points[i][1] * 0.4);
+                }
+                ctx.closePath();
+                ctx.fill();
+                
+                ctx.restore();
+            }
+        }
+        
+        class Ribbon {
+            constructor(phase, color1, color2, thickness) {
+                this.points = [];
+                this.phase = phase;
+                this.color1 = color1;
+                this.color2 = color2;
+                this.thickness = thickness;
+                this.numPoints = 60;
+                this.velocities = [];
+                
+                for (let i = 0; i < this.numPoints; i++) {
+                    const t = (i / this.numPoints) * Math.PI * 4;
+                    this.points.push({
+                        x: width/2 + Math.cos(t + phase) * 200 + Math.cos(t * 2) * 100,
+                        y: height/2 + Math.sin(t + phase) * 150 + Math.sin(t * 3) * 80,
+                        t: t,
+                        baseX: 0,
+                        baseY: 0
+                    });
+                    this.velocities.push({ x: 0, y: 0 });
+                }
+            }
+            
+            update() {
+                const rotation = autoRotate ? time * 0.0005 : 0;
+                
+                for (let i = 0; i < this.numPoints; i++) {
+                    const point = this.points[i];
+                    const t = point.t;
+                    
+                    // Base knot motion with rotation
+                    const baseX = width/2 + 
+                        Math.cos(t + this.phase + time * 0.001 + rotation) * 200 + 
+                        Math.cos(t * 2 + rotation * 2) * 100;
+                    const baseY = height/2 + 
+                        Math.sin(t + this.phase + time * 0.001 + rotation) * 150 + 
+                        Math.sin(t * 3) * 80;
+                    
+                    // Spring force to base
+                    this.velocities[i].x += (baseX - point.x) * 0.015;
+                    this.velocities[i].y += (baseY - point.y) * 0.015;
+                    
+                    // Mouse interaction
+                    if (mouse.pressed || Math.abs(mouse.vx) > 1 || Math.abs(mouse.vy) > 1) {
+                        const dx = mouse.x - point.x;
+                        const dy = mouse.y - point.y;
+                        const dist = Math.sqrt(dx * dx + dy * dy);
+                        
+                        if (dist < 200) {
+                            const force = (200 - dist) / 200;
+                            // Add swirl effect
+                            const angle = Math.atan2(dy, dx);
+                            const perpAngle = angle + Math.PI / 2;
+                            
+                            this.velocities[i].x += Math.cos(perpAngle) * force * 3;
+                            this.velocities[i].y += Math.sin(perpAngle) * force * 3;
+                            
+                            // Mouse velocity influence
+                            this.velocities[i].x += mouse.vx * force * 0.3;
+                            this.velocities[i].y += mouse.vy * force * 0.3;
+                        }
+                    }
+                    
+                    // Damping
+                    this.velocities[i].x *= 0.92;
+                    this.velocities[i].y *= 0.92;
+                    
+                    // Update
+                    point.x += this.velocities[i].x;
+                    point.y += this.velocities[i].y;
+                }
+            }
+            
+            draw() {
+                // Draw shadow/glow first
+                ctx.lineCap = 'round';
+                ctx.lineJoin = 'round';
+                
+                for (let pass = 0; pass < 3; pass++) {
+                    const alpha = pass === 0 ? 0.2 : (pass === 1 ? 0.4 : 1);
+                    const offset = pass === 0 ? 8 : (pass === 1 ? 4 : 0);
+                    
+                    for (let i = 0; i < this.points.length - 1; i++) {
+                        const p1 = this.points[i];
+                        const p2 = this.points[i + 1];
+                        
+                        const progress = i / (this.points.length - 1);
+                        const color = lerpColor(this.color1, this.color2, progress);
+                        const r = color[0], g = color[1], b = color[2];
+                        
+                        let thick = this.thickness + Math.sin(progress * Math.PI * 6) * 8;
+                        if (pass === 0) thick *= 1.5;
+                        if (pass === 1) thick *= 1.2;
+                        
+                        ctx.strokeStyle = pass === 2 ? 
+                            `rgb(${r}, ${g}, ${b})` : 
+                            `rgba(${r * (pass === 0 ? 0.3 : 0.7)}, ${g * (pass === 0 ? 0.3 : 0.7)}, ${b * (pass === 0 ? 0.3 : 0.7)}, ${alpha})`;
+                        ctx.lineWidth = thick;
+                        
+                        ctx.beginPath();
+                        ctx.moveTo(p1.x + offset, p1.y + offset);
+                        ctx.lineTo(p2.x + offset, p2.y + offset);
+                        ctx.stroke();
+                    }
+                }
+                
+                // Highlight line
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                for (let i = 0; i < this.points.length - 1; i++) {
+                    const p = this.points[i];
+                    const nextP = this.points[i + 1];
+                    const midX = (p.x + nextP.x) / 2 - 3;
+                    const midY = (p.y + nextP.y) / 2 - 3;
+                    if (i === 0) ctx.moveTo(midX, midY);
+                    else ctx.lineTo(midX, midY);
+                }
+                ctx.stroke();
+            }
+        }
+        
+        class Particle {
+            constructor() {
+                this.reset();
+            }
+            
+            reset() {
+                this.x = Math.random() * width;
+                this.y = Math.random() * height;
+                this.size = Math.random() * 2 + 0.5;
+                this.speed = Math.random() * 1 + 0.5;
+                this.angle = Math.random() * Math.PI * 2;
+                this.life = Math.random() * 200 + 100;
+                this.maxLife = this.life;
+            }
+            
+            update() {
+                this.x += Math.cos(this.angle) * this.speed;
+                this.y += Math.sin(this.angle) * this.speed;
+                this.life--;
+                
+                if (this.life <= 0 || this.x < 0 || this.x > width || this.y < 0 || this.y > height) {
+                    this.reset();
+                }
+            }
+            
+            draw() {
+                const alpha = (this.life / this.maxLife) * 0.6;
+                ctx.fillStyle = `rgba(200, 220, 255, ${alpha})`;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+        
+        // Initialize objects
+        let ribbons = [
+            new Ribbon(0, colors.deepPurple, colors.purple, 25),
+            new Ribbon(Math.PI / 3, colors.purple, colors.roseGold, 22),
+            new Ribbon(2 * Math.PI / 3, colors.roseGold, colors.gold, 20),
+            new Ribbon(Math.PI, colors.gold, colors.lightPurple, 18)
+        ];
+        
+        let crystals = [];
+        for (let i = 0; i < 10; i++) {
+            const angle = (i / 10) * Math.PI * 2;
+            const dist = 150 + Math.random() * 150;
+            crystals.push(new Crystal(
+                width/2 + Math.cos(angle) * dist,
+                height/2 + Math.sin(angle) * dist,
+                Math.random() * 15 + 20,
+                angle
+            ));
+        }
+        
+        let particles = Array(80).fill(null).map(() => new Particle());
+        
+        // Mouse events
+        canvas.addEventListener('mousedown', (e) => {
+            mouse.pressed = true;
+            mouse.x = e.clientX;
+            mouse.y = e.clientY;
+        });
+        
+        canvas.addEventListener('mousemove', (e) => {
+            mouse.prevX = mouse.x;
+            mouse.prevY = mouse.y;
+            mouse.x = e.clientX;
+            mouse.y = e.clientY;
+            mouse.vx = mouse.x - mouse.prevX;
+            mouse.vy = mouse.y - mouse.prevY;
+        });
+        
+        canvas.addEventListener('mouseup', () => {
+            mouse.pressed = false;
+        });
+        
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            mouse.pressed = true;
+            mouse.x = e.touches[0].clientX;
+            mouse.y = e.touches[0].clientY;
+        });
+        
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            mouse.prevX = mouse.x;
+            mouse.prevY = mouse.y;
+            mouse.x = e.touches[0].clientX;
+            mouse.y = e.touches[0].clientY;
+            mouse.vx = mouse.x - mouse.prevX;
+            mouse.vy = mouse.y - mouse.prevY;
+        });
+        
+        canvas.addEventListener('touchend', () => {
+            mouse.pressed = false;
+        });
+        
+        // Control functions
+        function resetSimulation() {
+            ribbons = [
+                new Ribbon(0, colors.deepPurple, colors.purple, 25),
+                new Ribbon(Math.PI / 3, colors.purple, colors.roseGold, 22),
+                new Ribbon(2 * Math.PI / 3, colors.roseGold, colors.gold, 20),
+                new Ribbon(Math.PI, colors.gold, colors.lightPurple, 18)
+            ];
+            crystals = [];
+            for (let i = 0; i < 10; i++) {
+                const angle = (i / 10) * Math.PI * 2;
+                const dist = 150 + Math.random() * 150;
+                crystals.push(new Crystal(
+                    width/2 + Math.cos(angle) * dist,
+                    height/2 + Math.sin(angle) * dist,
+                    Math.random() * 15 + 20,
+                    angle
+                ));
+            }
+        }
+        
+        function toggleAutoRotate() {
+            autoRotate = !autoRotate;
+        }
+        
+        function addCrystal() {
+            crystals.push(new Crystal(
+                mouse.x || width/2,
+                mouse.y || height/2,
+                Math.random() * 20 + 15,
+                Math.random() * Math.PI * 2
+            ));
+        }
+        
+        // Animation loop
+        function animate() {
+            time += 16;
+            
+            // Fade effect for trails
+            ctx.fillStyle = 'rgba(26, 10, 46, 0.15)';
+            ctx.fillRect(0, 0, width, height);
+            
+            // Update mouse velocity decay
+            mouse.vx *= 0.9;
+            mouse.vy *= 0.9;
+            
+            // Draw particles
+            particles.forEach(p => {
+                p.update();
+                p.draw();
+            });
+            
+            // Update and draw ribbons
+            ribbons.forEach(ribbon => {
+                ribbon.update();
+                ribbon.draw();
+            });
+            
+            // Update and draw crystals
+            crystals.forEach(crystal => {
+                crystal.update();
+                crystal.draw();
+            });
+            
+            // Draw mouse glow when pressed
+            if (mouse.pressed) {
+                const gradient = ctx.createRadialGradient(mouse.x, mouse.y, 0, mouse.x, mouse.y, 100);
+                gradient.addColorStop(0, 'rgba(255, 200, 100, 0.3)');
+                gradient.addColorStop(0.5, 'rgba(255, 200, 100, 0.1)');
+                gradient.addColorStop(1, 'transparent');
+                ctx.fillStyle = gradient;
+                ctx.beginPath();
+                ctx.arc(mouse.x, mouse.y, 100, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            
+            requestAnimationFrame(animate);
+        }
+        
+        animate();
+              </script>
+</body>
+</html>
